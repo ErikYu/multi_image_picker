@@ -724,8 +724,11 @@ public class MultiImagePickerPlugin implements
     private HashMap<String, Object> getLatLng(ExifInterface exifInterface, @NonNull Uri uri) {
         HashMap<String, Object> result = new HashMap<>();
         double[] latLong = exifInterface.getLatLong();
-        result.put(ExifInterface.TAG_GPS_LATITUDE, Math.abs(latLong[0]));
-        result.put(ExifInterface.TAG_GPS_LONGITUDE, Math.abs(latLong[1]));
+
+        if (latLong != null && latLong.length == 2) {
+            result.put(ExifInterface.TAG_GPS_LATITUDE, Math.abs(latLong[0]));
+            result.put(ExifInterface.TAG_GPS_LONGITUDE, Math.abs(latLong[1]));
+        }
         return result;
     }
 
