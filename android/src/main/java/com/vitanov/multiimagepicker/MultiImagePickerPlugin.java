@@ -100,10 +100,13 @@ public class MultiImagePickerPlugin implements
 
     @Override
     public boolean onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == REQUEST_CODE_GRANT_PERMISSIONS && permissions.length == 3) {
+        int permissionsLength = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ? 3 : 4;
+
+        if (requestCode == REQUEST_CODE_GRANT_PERMISSIONS && permissions.length == permissionsLength) {
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED
                     && grantResults[1] == PackageManager.PERMISSION_GRANTED
-                    && grantResults[2] == PackageManager.PERMISSION_GRANTED) {
+                    && grantResults[2] == PackageManager.PERMISSION_GRANTED
+                    && (grantResults.length < 4 || grantResults[3] == PackageManager.PERMISSION_GRANTED)) {
                 int maxImages = (int) this.methodCall.argument(MAX_IMAGES);
                 boolean enableCamera = (boolean) this.methodCall.argument(ENABLE_CAMERA);
                 HashMap<String, String> options = this.methodCall.argument(ANDROID_OPTIONS);
@@ -114,7 +117,8 @@ public class MultiImagePickerPlugin implements
                 if (
                         ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.READ_EXTERNAL_STORAGE) ||
                                 ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE) ||
-                                ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)) {
+                                ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA) ||
+                                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_MEDIA_LOCATION))) {
                     finishWithError("PERMISSION_DENIED", "Read, write or camera permission was not granted");
                 } else{
                     finishWithError("PERMISSION_PERMANENTLY_DENIED", "Please enable access to the storage and the camera.");
@@ -292,7 +296,13 @@ public class MultiImagePickerPlugin implements
         } else if (REQUEST_METADATA.equals(call.method)) {
             final String identifier = call.argument("identifier");
 
-            final Uri uri = Uri.parse(identifier);
+            Uri uri = Uri.parse(identifier);
+
+            // Scoped storage related code. We can only get gps location if we ask for original image
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                uri = MediaStore.setRequireOriginal(uri);
+            }
+
             try (InputStream in = context.getContentResolver().openInputStream(uri)) {
                 assert in != null;
                 ExifInterface exifInterface = new ExifInterface(in);
@@ -344,13 +354,15 @@ public class MultiImagePickerPlugin implements
         result.putAll(exif_double);
 
         // A Temp fix while location data is not returned from the exifInterface due to the errors:
-        //
         if (exif_double.isEmpty()
                 || !exif_double.containsKey(ExifInterface.TAG_GPS_LATITUDE)
                 || !exif_double.containsKey(ExifInterface.TAG_GPS_LONGITUDE)) {
 
             if (uri != null) {
-                HashMap<String, Object> hotfix_map = getLatLng(uri);
+                HashMap<String, Object> hotfix_map = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                        ? getLatLng(uri)
+                        : getLatLng(exifInterface, uri);
+
                 result.putAll(hotfix_map);
             }
         }
@@ -525,20 +537,27 @@ public class MultiImagePickerPlugin implements
 
     private void openImagePicker(HashMap<String, String> options) {
 
-        if (ContextCompat.checkSelfPermission(this.activity,
-                Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(this.activity,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(this.activity,
-                Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this.activity,
-                    new String[]{
-                            Manifest.permission.READ_EXTERNAL_STORAGE,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                            Manifest.permission.CAMERA
-                    },
-                    REQUEST_CODE_GRANT_PERMISSIONS);
+        // Because scoped storage, Android >= Q requires ACCESS_MEDIA_LOCATION in order to get gps information from picture
+        if (ContextCompat.checkSelfPermission(this.activity, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this.activity, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this.activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && ContextCompat.checkSelfPermission(this.activity, Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
+
+            String[] permissions = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                    ? new String[]{
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.CAMERA
+                        }
+                    : new String[]{
+                        Manifest.permission.READ_EXTERNAL_STORAGE,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.CAMERA,
+                        Manifest.permission.ACCESS_MEDIA_LOCATION,
+                        };
+
+
+            ActivityCompat.requestPermissions(this.activity, permissions, REQUEST_CODE_GRANT_PERMISSIONS);
 
         } else {
             int maxImages = (int) this.methodCall.argument(MAX_IMAGES);
@@ -700,6 +719,14 @@ public class MultiImagePickerPlugin implements
             clearMethodCallAndResult();
         }
         return false;
+    }
+
+    private HashMap<String, Object> getLatLng(ExifInterface exifInterface, @NonNull Uri uri) {
+        HashMap<String, Object> result = new HashMap<>();
+        double[] latLong = exifInterface.getLatLong();
+        result.put(ExifInterface.TAG_GPS_LATITUDE, Math.abs(latLong[0]));
+        result.put(ExifInterface.TAG_GPS_LONGITUDE, Math.abs(latLong[1]));
+        return result;
     }
 
     private HashMap<String, Object> getLatLng(@NonNull Uri uri) {
