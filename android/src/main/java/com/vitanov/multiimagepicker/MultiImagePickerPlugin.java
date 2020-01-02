@@ -294,9 +294,7 @@ public class MultiImagePickerPlugin implements
                 finishWithSuccess();
             }
         } else if (REQUEST_METADATA.equals(call.method)) {
-            System.out.println("aaaaaaa");
             final String identifier = call.argument("identifier");
-            System.out.println("bbbbbbbbb");
             Uri uri = Uri.parse(identifier);
 
             // Scoped storage related code. We can only get gps location if we ask for original image
@@ -304,11 +302,9 @@ public class MultiImagePickerPlugin implements
                 uri = MediaStore.setRequireOriginal(uri);
             }
 
-                System.out.println("cccccccccc");
             try (InputStream in = context.getContentResolver().openInputStream(uri)) {
                 assert in != null;
                 ExifInterface exifInterface = new ExifInterface(in);
-                    System.out.println("ddddddddddddd");
                 finishWithSuccess(getPictureExif(exifInterface, uri));
 
             } catch (IOException e) {
@@ -727,8 +723,10 @@ public class MultiImagePickerPlugin implements
     private HashMap<String, Object> getLatLng(ExifInterface exifInterface, @NonNull Uri uri) {
         HashMap<String, Object> result = new HashMap<>();
         double[] latLong = exifInterface.getLatLong();
-        result.put(ExifInterface.TAG_GPS_LATITUDE, Math.abs(latLong[0]));
-        result.put(ExifInterface.TAG_GPS_LONGITUDE, Math.abs(latLong[1]));
+        if (latLong != null && latLong.length == 2) {
+            result.put(ExifInterface.TAG_GPS_LATITUDE, Math.abs(latLong[0]));
+            result.put(ExifInterface.TAG_GPS_LONGITUDE, Math.abs(latLong[1]));
+        }
         return result;
     }
 
