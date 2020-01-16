@@ -958,7 +958,11 @@ double _castAsDouble(dynamic variable) {
   if (variable is int) {
     return variable.toDouble();
   }
-  return (!(variable is double)) ? double.parse(variable.toString()) : variable;
+  try {
+    return (!(variable is double)) ? double.parse(variable.toString()) : variable;
+  } catch(e) {
+    return null;
+  }
 }
 
 String _castAsString(dynamic variable) {
